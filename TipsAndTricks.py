@@ -1,13 +1,16 @@
 #Create List From DF
-not_unique_frags_to_list_c1 = not_unique_frags_c1.select('FRAGMENT_ID_C1')
 
-list_rerun_list_c1=[]
+def dfCol_to_list(df,col_to_list):   
+  df = df.select(col_to_list)
+  output_list=[]
 
-for i in not_unique_frags_to_list_c1.collect():
-    table_name =([str(i.fragment_id).rstrip('_0')])
-    list_rerun_list_c1 = list_rerun_list_c1+table_name
-
-list_rerun_list_c1
+  for i in df.collect():
+    str = i[0]
+    output_list.append(str)
+  return output_list  
+  
+list_tables = dfCol_to_list(df_table,'dbase_tableName')
+list_tables
 
 
 #Create JSON file from list
