@@ -8,3 +8,14 @@ mdb_partitions2 = (spark.read
                 .option("password", nifi_password)
                 .load()) 
 
+# sql server
+emperorDf = ( spark.read.format('jdbc')
+             .option("driver", "com.microsoft.sqlserver.jdbc.SQLServerDriver") 
+             .option("url", azure_sql_url) 
+             .option("dbtable", db_table) 
+             .option("databaseName", database_name) 
+             .option("accessToken", access_token)
+             .option("encrypt", "true") 
+             .load()
+            )
+
