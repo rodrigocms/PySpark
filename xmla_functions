@@ -1,0 +1,488 @@
+#%%
+import adodbapi as ado
+import pandas as pd 
+import requests
+
+pd.set_option('display.max_rows', None)
+pd.set_option('display.max_columns', None)
+pd.set_option('display.width', None)
+
+#### Functions to Get Information from PowerBI XMLA_ENDPOINT
+#%%
+
+#### Connection using Service Principal - Get Token from Databricks
+token = 'eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiIsIng1dCI6IjJaUXBKM1VwYmpBWVhZR2FYRUpsOGxWMFRPSSIsImtpZCI6IjJaUXBKM1VwYmpBWVhZR2FYRUpsOGxWMFRPSSJ9.eyJhdWQiOiJodHRwczovL2FuYWx5c2lzLndpbmRvd3MubmV0L3Bvd2VyYmkvYXBpIiwiaXNzIjoiaHR0cHM6Ly9zdHMud2luZG93cy5uZXQvOTY1MmQ3YzItMWNjZi00OTQwLTgxNTEtNGE5MmJkNDc0ZWQwLyIsImlhdCI6MTY1ODM5ODYyMywibmJmIjoxNjU4Mzk4NjIzLCJleHAiOjE2NTg0MDI1MjMsImFpbyI6IkUyWmdZTWd4TUpSY05OOVFwbVRQMXM3TDhsTk1BQT09IiwiYXBwaWQiOiI1ZDgzZjgyZC1kZWI5LTQ2MTctOGUxMS1iNzEzZmI1MzVmZTkiLCJhcHBpZGFjciI6IjEiLCJpZHAiOiJodHRwczovL3N0cy53aW5kb3dzLm5ldC85NjUyZDdjMi0xY2NmLTQ5NDAtODE1MS00YTkyYmQ0NzRlZDAvIiwib2lkIjoiZjk2YjgyZTgtNTQzMy00ZWU0LWI2MzgtMjBiNzkzMzkzMTg0IiwicmgiOiIwLkFRSUF3dGRTbHM4Y1FFbUJVVXFTdlVkTzBBa0FBQUFBQUFBQXdBQUFBQUFBQUFBQ0FBQS4iLCJzdWIiOiJmOTZiODJlOC01NDMzLTRlZTQtYjYzOC0yMGI3OTMzOTMxODQiLCJ0aWQiOiI5NjUyZDdjMi0xY2NmLTQ5NDAtODE1MS00YTkyYmQ0NzRlZDAiLCJ1dGkiOiJpOGhxMUtCbWRFT3NGRzRUSEh0RkFBIiwidmVyIjoiMS4wIn0.t2QlzCjflCQS2liPz1o0K5eo54-5TAvE6KkwYMXvQK5ma329llerb7EjjBWPZR1qcyEZ5vDt0QD5BFHzuK7LyXVUmM4m1O9Q9bTxEFsq7cwUePwmF0cZ24ufJLgEjOLAVP3uD92TarpN7c_Mys5fRjYmgbCGBJ_6I21M37R_bgfwac-ofD1vQbFbpx9rCJRcynqOY58xKa5CdUwda-L-9ZZKhGMx1I3sln1A3PQtxbh3hbVfQjO-OJCX0NzDXJigdPP0jV5lqL1fm_UEDXRGAo271IIdCPuapagrkT9zVilO-oAmaG7hiiZHCgph8qGEClqaXkVaLVCg-pMhGpTgjQ'
+
+def get_df_from_query_SP(xmla_endpoint, dataset_name, query):
+    ## Functions using Service Pricipal (Need to Provide Token - Get in Databricks )
+    ### Generate Token - https://adb-7939824218364777.17.azuredatabricks.net/?o=7939824218364777#notebook/4076648854791746/command/4076648854791747
+
+    conn = ado.connect(f"Provider=MSOLAP.8; \
+                            Data Source='{xmla_endpoint}'; Initial Catalog='{dataset_name}'; \
+                            User ID=;Password={token};Persist Security Info=True")
+    cur = conn.cursor()
+    cur.execute(f"{query}")
+    a=cur.fetchall()
+    df = pd.DataFrame(a)
+    return df
+
+##Connection using personal login and password
+def get_df_from_query(xmla_endpoint, dataset_name, query):
+    conn = ado.connect(f"Provider=MSOLAP.8; \
+                            Data Source='{xmla_endpoint}'; \
+                            Initial Catalog='{dataset_name}'")
+    cur = conn.cursor()
+    cur.execute(f"{query}")
+    a=cur.fetchall()
+    df = pd.DataFrame(a)
+    return df
+
+
+############ Documentation #############
+##https://docs.microsoft.com/en-us/analysis-services/instances/use-dynamic-management-views-dmvs-to-monitor-analysis-services?view=sql-analysis-services-2022#rowsets-described-in-the-ms-ssas-t-sql-server-analysis-services-tabular-protocol
+
+## Functions using Service Pricipal (Need to Provide Token - Get in Databricks )
+### Generate Token - https://adb-7939824218364777.17.azuredatabricks.net/?o=7939824218364777#notebook/4076648854791746/command/4076648854791747
+
+def get_calc_dependency_SP(xmla_endpoint, dataset_name):
+    ## Get info from really important table - contating tables used in the model, relationships, 
+    ##  rls information and measures.    
+    query = """
+    SELECT 
+        DATABASE_NAME,
+        OBJECT_TYPE, 
+        REFERENCED_OBJECT_TYPE,
+        REFERENCED_TABLE,
+        REFERENCED_OBJECT, 
+        REFERENCED_TABLE+'.'+REFERENCED_OBJECT AS table_name,
+        REFERENCED_EXPRESSION,
+        EXPRESSION     
+        FROM $System.DISCOVER_CALC_DEPENDENCY
+    
+    order by REFERENCED_TABLE+'_'+REFERENCED_OBJECT+'_'+OBJECT_TYPE
+    """
+    df_calc_dependency = get_df_from_query_SP(xmla_endpoint, dataset_name, query)
+    cols = ['DATABASE_NAME', 'OBJECT_TYPE', 'REFERENCED_OBJECT_TYPE', 'REFERENCED_TABLE', 'REFERENCED_OBJECT', 'table_name', 'REFERENCED_EXPRESSION','EXPRESSION']
+    df_calc_dependency.columns = cols
+    return df_calc_dependency   
+
+def get_calc_dependency_regex_SP(xmla_endpoint, dataset_name):
+    query = """
+    SELECT 
+        DATABASE_NAME,
+        OBJECT_TYPE, 
+        REFERENCED_OBJECT_TYPE,
+        REFERENCED_TABLE,
+        REFERENCED_OBJECT, 
+        REFERENCED_TABLE+'.'+REFERENCED_OBJECT AS table_name,
+        REFERENCED_EXPRESSION,
+        EXPRESSION     
+        FROM $System.DISCOVER_CALC_DEPENDENCY
+  
+    order by REFERENCED_TABLE+'_'+REFERENCED_OBJECT+'_'+OBJECT_TYPE
+    """
+    df_calc_dependency = get_df_from_query_SP(xmla_endpoint, dataset_name, query)
+    cols = ['DATABASE_NAME', 'OBJECT_TYPE', 'REFERENCED_OBJECT_TYPE', 'REFERENCED_TABLE', 'REFERENCED_OBJECT', 'table_name', 'REFERENCED_EXPRESSION','EXPRESSION']
+    # df_calc_dependency.columns = cols
+    
+    if len(df_calc_dependency.columns) == len(cols):        
+        df_calc_dependency.columns = cols
+        
+        date_reg_table = r'(\_Schema\{\[Name=")(.*)(",Kind=")'
+        df_calc_dependency['original_source_db_table'] =df_calc_dependency['EXPRESSION'].str.extract(date_reg_table, expand=False)[1]
+
+        date_reg = r'(hive_metastore_Database{\[Name=\")(.*)(",Kind=\"Schema\")'
+        df_calc_dependency['original_source_db'] = df_calc_dependency['EXPRESSION'].str.extract(date_reg, expand=False)[1]
+        df_source_tables = df_calc_dependency
+        
+        #df_source_tables = df_calc_dependency[['worskpace_name','REFERENCED_OBJECT', 'original_source_db','original_source_db_table']]
+    else:
+        df_source_tables = 0
+        print('No data from: xmla_endpoint:', xmla_endpoint, " - dataset_name:", dataset_name)       
+    
+    return df_source_tables  
+
+
+
+
+def get_datasets_source_tables_SP(xmla_endpoint, dataset_name):
+    query = """
+    SELECT 
+        DATABASE_NAME,
+        OBJECT_TYPE, 
+        REFERENCED_OBJECT_TYPE,
+        REFERENCED_TABLE,
+        REFERENCED_OBJECT, 
+        REFERENCED_TABLE+'.'+REFERENCED_OBJECT AS table_name,
+        REFERENCED_EXPRESSION,
+        EXPRESSION     
+        FROM $System.DISCOVER_CALC_DEPENDENCY
+    where REFERENCED_OBJECT_TYPE= 'M_EXPRESSION'
+    order by REFERENCED_TABLE+'_'+REFERENCED_OBJECT+'_'+OBJECT_TYPE
+    """
+    df_calc_dependency = get_df_from_query_SP(xmla_endpoint, dataset_name, query)
+    cols = ['DATABASE_NAME', 'OBJECT_TYPE', 'REFERENCED_OBJECT_TYPE', 'REFERENCED_TABLE', 'REFERENCED_OBJECT', 'table_name', 'REFERENCED_EXPRESSION','EXPRESSION']
+    # df_calc_dependency.columns = cols
+    
+    if len(df_calc_dependency.columns) == len(cols):        
+        df_calc_dependency.columns = cols
+        
+        date_reg_table = r'(\_Schema\{\[Name=")(.*)(",Kind=")'
+        df_calc_dependency['original_source_db_table'] =df_calc_dependency['EXPRESSION'].str.extract(date_reg_table, expand=False)[1]
+
+        date_reg = r'(hive_metastore_Database{\[Name=\")(.*)(",Kind=\"Schema\")'
+        df_calc_dependency['original_source_db'] = df_calc_dependency['EXPRESSION'].str.extract(date_reg, expand=False)[1]
+        df_source_tables = df_calc_dependency
+        
+        #df_source_tables = df_calc_dependency[['worskpace_name','REFERENCED_OBJECT', 'original_source_db','original_source_db_table']]
+    else:
+        df_source_tables = 0
+        print('No data from: xmla_endpoint:', xmla_endpoint, " - dataset_name:", dataset_name)       
+    
+    return df_source_tables  
+
+def get_datasets_source_tables_with_host_SP(xmla_endpoint, dataset_name):
+    query = """
+    SELECT 
+        DATABASE_NAME,
+        OBJECT_TYPE, 
+        REFERENCED_OBJECT_TYPE,
+        REFERENCED_TABLE,
+        REFERENCED_OBJECT, 
+        REFERENCED_TABLE+'.'+REFERENCED_OBJECT AS table_name,
+        REFERENCED_EXPRESSION,
+        EXPRESSION     
+        FROM $System.DISCOVER_CALC_DEPENDENCY
+    where REFERENCED_OBJECT_TYPE= 'M_EXPRESSION'
+    order by REFERENCED_TABLE+'_'+REFERENCED_OBJECT+'_'+OBJECT_TYPE
+    """
+    df_calc_dependency = get_df_from_query_SP(xmla_endpoint, dataset_name, query)
+    cols = ['DATABASE_NAME', 'OBJECT_TYPE', 'REFERENCED_OBJECT_TYPE', 'REFERENCED_TABLE', 'REFERENCED_OBJECT', 'table_name', 'REFERENCED_EXPRESSION','EXPRESSION']
+    # df_calc_dependency.columns = cols
+    
+    if len(df_calc_dependency.columns) == len(cols):        
+        df_calc_dependency.columns = cols
+        
+        date_reg_table = r'(\_Schema\{\[Name=")(.*)(",Kind=")'
+        df_calc_dependency['original_source_db_table'] =df_calc_dependency['EXPRESSION'].str.extract(date_reg_table, expand=False)[1]
+
+        date_reg = r'(hive_metastore_Database{\[Name=\")(.*)(",Kind=\"Schema\")'
+        df_calc_dependency['original_source_db'] = df_calc_dependency['EXPRESSION'].str.extract(date_reg, expand=False)[1]
+
+        date_reg_databricks_host = r'(\")(.*)(\" meta.*)'
+        df_calc_dependency['databricks_host'] = (df_calc_dependency['REFERENCED_EXPRESSION'].str.extract(date_reg_databricks_host, expand=False)[1]) 
+
+        date_reg_databricks_https = r'(\")(.*)(\" meta.*)'
+        df_calc_dependency['databricks_https'] = (df_calc_dependency['REFERENCED_EXPRESSION'].str.extract(date_reg_databricks_https, expand=False)[1]) 
+
+        df_calc_dependency['worskpace_name'] = df_calc_dependency['DATABASE_NAME']
+        
+        df_source_tables = df_calc_dependency[['worskpace_name','REFERENCED_OBJECT', 'original_source_db','original_source_db_table','databricks_host','databricks_https']]
+        
+        df_source_tables['dataset_name'] = xmla_endpoint.split('/')[-1]
+    else:
+        df_source_tables = 0
+        print('No data from: xmla_endpoint:', xmla_endpoint, " - dataset_name:", dataset_name)       
+    
+    
+    
+    return df_source_tables  
+
+def get_tmschema_tables_SP(xmla_endpoint, dataset_name):
+    query = """
+    SELECT * FROM $System.TMSCHEMA_TABLES   
+    """
+    df_schema_tmstables = get_df_from_query_SP(xmla_endpoint, dataset_name, query)
+    cols = ['ID', 'ModelID', 'Name', 'DataCategory', 'Description', 'IsHidden', 'TableStorageID', 'ModifiedTime', 'StructureModifiedTime', 'SystemFlags', 'ShowAsVariationsOnly', 'IsPrivate', 'DefaultDetailRowsDefinitionID', 'AlternateSourcePrecedence', 'RefreshPolicyID', 'CalculationGroupID', 'ExcludeFromModelRefresh', 'LineageTag', 'SourceLineageTag']
+    df_schema_tmstables.columns = cols
+    return df_schema_tmstables
+
+def get_calc_dependency_tables_SP(xmla_endpoint, dataset_name):
+    query = """
+    SELECT DISTINCT
+    DATABASE_NAME,
+    OBJECT_TYPE, 
+    REFERENCED_OBJECT_TYPE,
+    REFERENCED_TABLE,
+    REFERENCED_OBJECT, 
+    REFERENCED_TABLE+'.'+REFERENCED_OBJECT AS table_name,
+    REFERENCED_EXPRESSION  
+    
+    FROM $System.DISCOVER_CALC_DEPENDENCY  
+    where REFERENCED_OBJECT_TYPE= 'COLUMN'
+    order by REFERENCED_TABLE+'_'+REFERENCED_OBJECT+'_'+OBJECT_TYPE
+    """
+    df_calc_dependency = get_df_from_query_SP(xmla_endpoint, dataset_name, query)
+    cols = ['DATABASE_NAME', 'OBJECT_TYPE', 'REFERENCED_OBJECT_TYPE', 'REFERENCED_TABLE', 'REFERENCED_OBJECT', 'table_name', 'REFERENCED_EXPRESSION']
+    
+    if len(df_calc_dependency.columns) == len(cols):        
+        df_calc_dependency.columns = cols
+    else:
+        None       
+    return df_calc_dependency   
+
+def get_schema_dimensions_SP(xmla_endpoint, dataset_name):
+    query = """
+    SELECT * FROM $System.MDSCHEMA_DIMENSIONS
+    """
+    df_schema_dimensions = get_df_from_query_SP(xmla_endpoint, dataset_name, query)
+    cols = ['CATALOG_NAME','SCHEMA_NAME','CUBE_NAME','DIMENSION_NAME', 'DIMENSION_UNIQUE_NAME','DIMENSION_GUID','DIMENSION_CAPTION', 'DIMENSION_ORDINAL','DIMENSION_TYPE','DIMENSION_CARDINALITY','DEFAULT_HIERARCHY', 'DESCRIPTION','IS_VIRTUAL','IS_READWRITE','DIMENSION_UNIQUE_SETTINGS', 'DIMENSION_MASTER_NAME','DIMENSION_IS_VISIBLE']
+    df_schema_dimensions.columns = cols
+    return df_schema_dimensions
+
+def get_schema_measures_SP(xmla_endpoint, dataset_name):
+    query = """
+        SELECT 
+            ID,	
+            TableID,	
+            Name,	
+            DisplayFolder,
+            Description,
+            DataType,
+            Expression,
+            FormatString,
+            IsHidden,
+            State,
+            ModifiedTime,
+            StructureModifiedTime,
+            LineageTag
+        FROM $System.TMSCHEMA_MEASURES		   
+
+        """
+    df_schema_measures = get_df_from_query_SP(xmla_endpoint, dataset_name, query)
+    cols = ['ID', 'TableID', 'Name', 'DisplayFolder', 'Description', 'DataType', 'Expression', 'FormatString', 'IsHidden', 'State', 'ModifiedTime', 'StructureModifiedTime', 'LineageTag'] 
+    df_schema_measures.columns = cols
+    return df_schema_measures
+
+## Functions using Personal Login (Pop up Authentication)
+def get_calc_dependency(xmla_endpoint, dataset_name):
+    ## Get info from really important table - contating tables used in the model, relationships, 
+    ##  rls information and measures.    
+    query = """
+    SELECT 
+        DATABASE_NAME,
+        OBJECT_TYPE, 
+        REFERENCED_OBJECT_TYPE,
+        REFERENCED_TABLE,
+        REFERENCED_OBJECT, 
+        REFERENCED_TABLE+'.'+REFERENCED_OBJECT AS table_name,
+        REFERENCED_EXPRESSION,
+        EXPRESSION     
+        FROM $System.DISCOVER_CALC_DEPENDENCY
+
+    order by REFERENCED_TABLE+'_'+REFERENCED_OBJECT+'_'+OBJECT_TYPE
+    """
+    df_calc_dependency = get_df_from_query(xmla_endpoint, dataset_name, query)
+    cols = ['DATABASE_NAME', 'OBJECT_TYPE', 'REFERENCED_OBJECT_TYPE', 'REFERENCED_TABLE', 'REFERENCED_OBJECT', 'table_name', 'REFERENCED_EXPRESSION','EXPRESSION']
+    df_calc_dependency.columns = cols
+    return df_calc_dependency   
+
+def get_datasets_source_tables(xmla_endpoint, dataset_name):
+    query = """
+    SELECT 
+        DATABASE_NAME,
+        OBJECT_TYPE, 
+        REFERENCED_OBJECT_TYPE,
+        REFERENCED_TABLE,
+        REFERENCED_OBJECT, 
+        REFERENCED_TABLE+'.'+REFERENCED_OBJECT AS table_name,
+        REFERENCED_EXPRESSION,
+        EXPRESSION     
+        FROM $System.DISCOVER_CALC_DEPENDENCY
+    where REFERENCED_OBJECT_TYPE= 'M_EXPRESSION'
+    order by REFERENCED_TABLE+'_'+REFERENCED_OBJECT+'_'+OBJECT_TYPE
+    """
+    df_calc_dependency = get_df_from_query(xmla_endpoint, dataset_name, query)
+    cols = ['DATABASE_NAME', 'OBJECT_TYPE', 'REFERENCED_OBJECT_TYPE', 'REFERENCED_TABLE', 'REFERENCED_OBJECT', 'table_name', 'REFERENCED_EXPRESSION','EXPRESSION']
+    # df_calc_dependency.columns = cols
+    
+    if len(df_calc_dependency.columns) == len(cols):        
+        df_calc_dependency.columns = cols
+        
+        date_reg_table = r'(\_Schema\{\[Name=")(.*)(",Kind=")'
+        df_calc_dependency['original_source_db_table'] =df_calc_dependency['EXPRESSION'].str.extract(date_reg_table, expand=False)[1]
+
+        date_reg = r'(hive_metastore_Database{\[Name=\")(.*)(",Kind=\"Schema\")'
+        df_calc_dependency['original_source_db'] = df_calc_dependency['EXPRESSION'].str.extract(date_reg, expand=False)[1]
+        df_source_tables = df_calc_dependency
+        
+        #df_source_tables = df_calc_dependency[['worskpace_name','REFERENCED_OBJECT', 'original_source_db','original_source_db_table']]
+    else:
+        df_source_tables = 0
+        print('No data from: xmla_endpoint:', xmla_endpoint, " - dataset_name:", dataset_name)       
+    
+    return df_source_tables  
+
+def get_datasets_source_tables_with_host(xmla_endpoint, dataset_name):
+    query = """
+    SELECT 
+        DATABASE_NAME,
+        OBJECT_TYPE, 
+        REFERENCED_OBJECT_TYPE,
+        REFERENCED_TABLE,
+        REFERENCED_OBJECT, 
+        REFERENCED_TABLE+'.'+REFERENCED_OBJECT AS table_name,
+        REFERENCED_EXPRESSION,
+        EXPRESSION     
+        FROM $System.DISCOVER_CALC_DEPENDENCY
+    where REFERENCED_OBJECT_TYPE= 'M_EXPRESSION'
+    order by REFERENCED_TABLE+'_'+REFERENCED_OBJECT+'_'+OBJECT_TYPE
+    """
+    df_calc_dependency = get_df_from_query(xmla_endpoint, dataset_name, query)
+    cols = ['DATABASE_NAME', 'OBJECT_TYPE', 'REFERENCED_OBJECT_TYPE', 'REFERENCED_TABLE', 'REFERENCED_OBJECT', 'table_name', 'REFERENCED_EXPRESSION','EXPRESSION']
+    # df_calc_dependency.columns = cols
+    
+    if len(df_calc_dependency.columns) == len(cols):        
+        df_calc_dependency.columns = cols
+        
+        date_reg_table = r'(\_Schema\{\[Name=")(.*)(",Kind=")'
+        df_calc_dependency['original_source_db_table'] =df_calc_dependency['EXPRESSION'].str.extract(date_reg_table, expand=False)[1]
+
+        date_reg = r'(hive_metastore_Database{\[Name=\")(.*)(",Kind=\"Schema\")'
+        df_calc_dependency['original_source_db'] = df_calc_dependency['EXPRESSION'].str.extract(date_reg, expand=False)[1]
+
+        date_reg_databricks_host = r'(\")(.*)(\" meta.*)'
+        df_calc_dependency['databricks_host'] = (df_calc_dependency['REFERENCED_EXPRESSION'].str.extract(date_reg_databricks_host, expand=False)[1]) 
+
+        date_reg_databricks_https = r'(\")(.*)(\" meta.*)'
+        df_calc_dependency['databricks_https'] = (df_calc_dependency['REFERENCED_EXPRESSION'].str.extract(date_reg_databricks_https, expand=False)[1]) 
+
+        df_calc_dependency['worskpace_name'] = df_calc_dependency['DATABASE_NAME']
+        
+        df_source_tables = df_calc_dependency[['worskpace_name','REFERENCED_OBJECT', 'original_source_db','original_source_db_table','databricks_host','databricks_https']]
+        
+        df_source_tables['dataset_name'] = xmla_endpoint.split('/')[-1]
+    else:
+        df_source_tables = 0
+        print('No data from: xmla_endpoint:', xmla_endpoint, " - dataset_name:", dataset_name)       
+    
+    
+    
+    return df_source_tables  
+
+def get_tmschema_tables(xmla_endpoint, dataset_name):
+    query = """
+    SELECT * FROM $System.TMSCHEMA_TABLES   
+    """
+    df_schema_tmstables = get_df_from_query(xmla_endpoint, dataset_name, query)
+    cols = ['ID', 'ModelID', 'Name', 'DataCategory', 'Description', 'IsHidden', 'TableStorageID', 'ModifiedTime', 'StructureModifiedTime', 'SystemFlags', 'ShowAsVariationsOnly', 'IsPrivate', 'DefaultDetailRowsDefinitionID', 'AlternateSourcePrecedence', 'RefreshPolicyID', 'CalculationGroupID', 'ExcludeFromModelRefresh', 'LineageTag', 'SourceLineageTag']
+    df_schema_tmstables.columns = cols
+    return df_schema_tmstables
+
+def get_calc_dependency_tables(xmla_endpoint, dataset_name):
+    query = """
+    SELECT DISTINCT
+    DATABASE_NAME,
+    OBJECT_TYPE, 
+    REFERENCED_OBJECT_TYPE,
+    REFERENCED_TABLE,
+    REFERENCED_OBJECT, 
+    REFERENCED_TABLE+'.'+REFERENCED_OBJECT AS table_name,
+    REFERENCED_EXPRESSION  
+    
+    FROM $System.DISCOVER_CALC_DEPENDENCY  
+    where REFERENCED_OBJECT_TYPE= 'COLUMN'
+    order by REFERENCED_TABLE+'_'+REFERENCED_OBJECT+'_'+OBJECT_TYPE
+    """
+    df_calc_dependency = get_df_from_query(xmla_endpoint, dataset_name, query)
+    cols = ['DATABASE_NAME', 'OBJECT_TYPE', 'REFERENCED_OBJECT_TYPE', 'REFERENCED_TABLE', 'REFERENCED_OBJECT', 'table_name', 'REFERENCED_EXPRESSION']
+    
+    if len(df_calc_dependency.columns) == len(cols):        
+        df_calc_dependency.columns = cols
+    else:
+        None       
+    return df_calc_dependency   
+
+def get_schema_dimensions(xmla_endpoint, dataset_name):
+    query = """
+    SELECT * FROM $System.MDSCHEMA_DIMENSIONS
+    """
+    df_schema_dimensions = get_df_from_query(xmla_endpoint, dataset_name, query)
+    cols = ['CATALOG_NAME','SCHEMA_NAME','CUBE_NAME','DIMENSION_NAME', 'DIMENSION_UNIQUE_NAME','DIMENSION_GUID','DIMENSION_CAPTION', 'DIMENSION_ORDINAL','DIMENSION_TYPE','DIMENSION_CARDINALITY','DEFAULT_HIERARCHY', 'DESCRIPTION','IS_VIRTUAL','IS_READWRITE','DIMENSION_UNIQUE_SETTINGS', 'DIMENSION_MASTER_NAME','DIMENSION_IS_VISIBLE']
+    df_schema_dimensions.columns = cols
+    return df_schema_dimensions
+
+def get_schema_measures(xmla_endpoint, dataset_name):
+    query = """
+    SELECT 
+        ID,	
+        TableID,	
+        Name,	
+        DisplayFolder,
+        Description,
+        DataType,
+        Expression,
+        FormatString,
+        IsHidden,
+        State,
+        ModifiedTime,
+        StructureModifiedTime,
+        LineageTag
+    FROM $System.TMSCHEMA_MEASURES		   
+
+    """
+    df_schema_measures = get_df_from_query(xmla_endpoint, dataset_name, query)
+    cols = ['ID', 'TableID', 'Name', 'DisplayFolder', 'Description', 'DataType', 'Expression', 'FormatString', 'IsHidden', 'State', 'ModifiedTime', 'StructureModifiedTime', 'LineageTag'] 
+    df_schema_measures.columns = cols
+    return df_schema_measures
+
+# %%
+## Functions From Power_BI_API_Functions (databricks): 
+# https://adb-7939824218364777.17.azuredatabricks.net/?o=7939824218364777#notebook/3421805640648485/command/3649588431406622
+
+def pbiApi_get_token_header():
+    lst = [0,{'Content-Type':'application/json','Authorization': f'Bearer {token}'}]
+    return lst
+
+def pbiApi_get_list_all_workspaces():
+  URL = f'https://api.powerbi.com/v1.0/myorg/groups'
+  #HEADERS = {'Content-Type': 'application/json', 'Authorization': f'Bearer {accessToken}'}
+  HEADERS = pbiApi_get_token_header()[1]
+  api_out_r = requests.get(url=URL, headers=HEADERS )
+  reportsJson = api_out_r.json()
+  reportsJson
+
+  lst=[]
+  for w in range(len(reportsJson['value'])):
+    workspace_id = reportsJson['value'][w]['id']
+    lst.append([workspace_id][0])
+  return lst
+
+def pbiApi_get_list_datasets_in_workspaces(workspaceId):
+  lst_datasets_in_workspaces = []
+  for workspaceId in pbiApi_get_list_all_workspaces():
+
+    URL = f'https://api.powerbi.com/v1.0/myorg/groups/{workspaceId}/datasets'
+    #HEADERS = {'Content-Type': 'application/json', 'Authorization': f'Bearer {accessToken}'}
+    HEADERS = pbiApi_get_token_header()[1]
+    api_out_r = requests.get(url=URL, headers=HEADERS )
+    reportsJson = api_out_r.json()
+
+    for d in range(len(reportsJson['value'])):
+      dataset_id = reportsJson['value'][d]['id']
+      info_list = [workspaceId,dataset_id]
+      lst_datasets_in_workspaces.append(info_list)
+  
+  return lst_datasets_in_workspaces
+
+def pbiApi_get_list_all_workspaces_datasets():
+  all_workspaces = pbiApi_get_list_all_workspaces()
+  all_workspaces
+ 
+  for g in all_workspaces:
+    list_w_d = pbiApi_get_list_datasets_in_workspaces(g)
+    list_w_d.append(list_w_d[0])
+  
+  return list_w_d
+#%%
+pbiApi_get_list_all_workspaces_datasets()
+# %%
+
+ws_list = pbiApi_get_list_all_workspaces()
+ws_list
+# %%
+
+
+
+
+# %%
