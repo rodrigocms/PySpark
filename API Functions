@@ -1,0 +1,110 @@
+#### More functions on Power BI API - https://adb-7939824218364777.17.azuredatabricks.net/?o=7939824218364777#notebook/3421805640648485/command/3421805640648488
+
+# Authentication ( Service Principal Access)
+def pbiApi_get_token_header():
+  client_id = '5xxxfxxx-deb9-xxxx-8e11-b71xxx535xxx'
+  client_secret = dbutils.secrets.get("MS-eu-xxx-xxx-xx","ServicePrincipalDevSecret",)
+  authority_url = 'https://login.microsoftonline.com/____tennant_id_____'   # tenat 9652d7c2-1ccf-4940-8151-4a92bd474ed0
+  scope = ["https://analysis.windows.net/powerbi/api/.default"]
+
+  url_groups = f'https://api.powerbi.com/v1.0/myorg/groups'
+
+  app = msal.ConfidentialClientApplication(
+                                            client_id,
+                                            authority=authority_url,
+                                            client_credential=client_secret)
+
+  result = app.acquire_token_for_client(scopes=scope)
+  accessToken = result['access_token']
+  header = {'Content-Type':'application/json','Authorization': f'Bearer {accessToken}'}
+  return accessToken, header
+
+def pbiApi_get_list_all_workspaces():
+  URL = f'https://api.powerbi.com/v1.0/myorg/groups'
+  #HEADERS = {'Content-Type': 'application/json', 'Authorization': f'Bearer {accessToken}'}
+  HEADERS = pbiApi_get_token_header()[1]
+  api_out_r = requests.get(url=URL, headers=HEADERS )
+  reportsJson = api_out_r.json()
+  reportsJson
+
+  lst=[]
+  for w in range(len(reportsJson['value'])):
+    workspace_id = reportsJson['value'][w]['id']
+    lst.append([workspace_id][0])
+  return lst
+
+def pbiApi_get_list_datasets_in_workspaces(workspaceId):
+  lst_datasets_in_workspaces = []
+  for workspaceId in pbiApi_get_list_all_workspaces():
+
+    URL = f'https://api.powerbi.com/v1.0/myorg/groups/{workspaceId}/datasets'
+    #HEADERS = {'Content-Type': 'application/json', 'Authorization': f'Bearer {accessToken}'}
+    HEADERS = pbiApi_get_token_header()[1]
+    api_out_r = requests.get(url=URL, headers=HEADERS )
+    reportsJson = api_out_r.json()
+
+    for d in range(len(reportsJson['value'])):
+      dataset_id = reportsJson['value'][d]['id']
+      info_list = [workspaceId,dataset_id]
+      lst_datasets_in_workspaces.append(info_list)
+  
+  return lst_datasets_in_workspaces
+
+# List with All Workspaces
+# Returns a LIST of existing [Workspaces,DATASETS] in the Capacity
+def pbiApi_get_list_all_workspaces_datasets():
+  all_workspaces = pbiApi_get_list_all_workspaces()
+  all_workspaces
+ 
+  for g in all_workspaces:
+    list_w_d = pbiApi_get_list_datasets_in_workspaces(g)
+    list_w_d.append(list_w_d[0])
+  
+  return list_w_d
+
+def pbiApi_get_df_info_all_workspaces():
+  URL = f'https://api.powerbi.com/v1.0/myorg/groups'
+  #HEADERS = {'Content-Type': 'application/json', 'Authorization': f'Bearer {accessToken}'}
+  HEADERS = pbiApi_get_token_header()[1]
+  api_out_r = requests.get(url=URL, headers=HEADERS )
+  reportsJson = api_out_r.json()
+  reportsJson
+
+  lst=[]
+  for w in range(len(reportsJson['value'])):
+    workspace_id = reportsJson['value'][w]['id']
+    workspace_name = reportsJson['value'][w]['name']
+    workspace_type = reportsJson['value'][w]['type']
+    workspace_isReadOnly = reportsJson['value'][w]['isReadOnly']
+    workspace_isOnDedicatedCapacity = reportsJson['value'][w]['isOnDedicatedCapacity']
+    workspace_capacityId = reportsJson['value'][w]['capacityId']
+    lst.append([workspace_id,workspace_name,workspace_type,workspace_isReadOnly,workspace_isOnDedicatedCapacity,workspace_capacityId])
+
+  df = spark.createDataFrame(lst, ['workspace_id','workspace_name','workspace_type','workspace_isReadOnly','workspace_isOnDedicatedCapacity','workspace_capacityId'])
+  return df
+
+
+
+def pbiApi_get_df_info_all_datasets_in_workspaces():
+  Schema_df_datasets= StructType([
+                      StructField('dataset_name',StringType(), False),
+                      StructField('dataset_configuredBy',StringType(), False),
+                      StructField('dataset_isRefreshable',BooleanType(), False),
+                      StructField('dataset_targetStorageMode',StringType(), False),
+                      StructField('workspaceId',StringType(), False),
+                      StructField('dataset_id',StringType(), False),
+                      StructField('dataset_createdDate',StringType(), False),  
+                      ])
+
+  df_datasets = spark.createDataFrame(data = [],
+                             schema = Schema_df_datasets)
+
+  for g in pbiApi_get_list_all_workspaces():
+    df_ds = pbiApi_get_df_info_datasets_in_workspaces(g)
+    df_ds = df_ds.select('dataset_name','dataset_configuredBy','dataset_isRefreshable', 'dataset_targetStorageMode','workspaceId', 'dataset_id', 'dataset_createdDate')
+    df_datasets = df_datasets.union(df_ds)
+    
+  df_datasets = (df_datasets.withColumn("partition_date",date_format(current_date(),"yyyy-MM-dd"))  
+                      .withColumn("ApiUpdate_date",date_format(current_date(),"yyyy-MM-dd"))
+                      .withColumn("ApiUpdate_timestamp",to_timestamp(current_timestamp(),"yyyy-MM-dd HH mm ss SSS")))
+  return df_datasets
