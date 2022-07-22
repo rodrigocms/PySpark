@@ -1,0 +1,98 @@
+#%%
+from operator import concat
+from time import sleep
+import adodbapi as ado
+import pandas as pd 
+import xmla_functions as f 
+import pandasql 
+
+def sql(query):
+    sql = pandasql.sqldf(query)    
+    return sql
+
+workspace_name =  'XTO-SB-32-dhmbio-ONEDNA [DEV]'
+dataset_name   =  'Model Exploration New'
+xmla_endpoint  = f'powerbi://api.powerbi.com/v1.0/myorg/{workspace_name}'
+xmla_endpoint  = f'powerbi://api.powerbi.com/v1.0/myorg/XTO-SB-32-dhmbio-ONEDNA [DEV]'
+
+print('Token (last 5 digits): ',f.token[-5:] )
+
+
+#%%
+
+    ##In Databricks
+    ## keep on the datasets, remove datamarts
+    ##df = spark.sql('''SELECT workspace_name, dataset_name
+    ##FROM analystsdb.onedna_pbiapi_datasets
+    ##where ApiUpdate_date = (select distinct ApiUpdate_date from analystsdb.onedna_pbiapi_datasets order by 1 desc limit 1 )
+    ##order by 1,2
+    ##''')
+    ## convert df to list
+
+df2 = pd.read_csv('c:\data\onedna_pbiapi_datasets.csv')
+lst = df2.values.tolist()
+lst
+
+#### Check List
+n = 5
+workspace_name = lst[n][0]
+dataset_name = lst[n][1]
+xmla_endpoint  = f"powerbi://api.powerbi.com/v1.0/myorg/{workspace_name}"
+
+#%%
+print ('workspace_name:', workspace_name)
+print ('dataset_name:', dataset_name)
+print('xmla_endpoint:', xmla_endpoint)
+#print('List:', lst)
+#%%
+df_test = f.get_calc_dependency_regex_SP(xmla_endpoint, dataset_name)
+#df_test
+
+
+sql('''
+    SELECT * 
+    FROM df_test 
+    order by object_type
+    LIMIT 30''')
+
+
+
+
+
+
+
+#%%
+
+df_final = pd.DataFrame()
+
+for n in lst:
+    workspace_name = n[0]
+    dataset_name   = n[1]
+    xmla_endpoint  = f"powerbi://api.powerbi.com/v1.0/myorg/{workspace_name}"
+
+    df_temp  = f.get_calc_dependency_regex_SP(xmla_endpoint, dataset_name)
+    df_final = pd.concat([df_final,df_temp])
+    print(workspace_name, dataset_name, 'Count:',len(df_temp), 'Total Count:',len(df_final)  )
+    
+
+#%%
+
+df_final
+
+
+#%%
+
+sql('''
+    SELECT distinct DATABASE_NAME, lower(REFERENCED_TABLE)
+    FROM df_final 
+    where 
+    order by object_type
+    ''')
+
+
+
+
+
+# %%
+df2
+# %%
