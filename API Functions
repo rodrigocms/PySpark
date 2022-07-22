@@ -1,4 +1,9 @@
-#### More functions on Power BI API - https://adb-7939824218364777.17.azuredatabricks.net/?o=7939824218364777#notebook/3421805640648485/command/3421805640648488
+import requests
+import msal
+import json
+from pyspark.sql.types import *
+from pyspark.sql.functions import *
+from datetime import datetime, timedelta, date
 
 # Authentication ( Service Principal Access)
 def pbiApi_get_token_header():
